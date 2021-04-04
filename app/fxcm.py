@@ -79,6 +79,7 @@ class FXCM(object):
 		self.is_parent = is_parent
 		self.job_queue = []
 		self.subscriptions = []
+		self.offers_listener = None
 
 		self.fx = ForexConnect()
 		self.session = None
