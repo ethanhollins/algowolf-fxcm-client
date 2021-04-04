@@ -191,6 +191,16 @@ class FXCM(object):
 
 		elif status == fxcorepy.AO2GSessionStatus.O2GSessionStatus.CONNECTED:
 			print('[FXCM] Logged in.', flush=True)
+			if self.offers_listener is not None:
+				offers = self.fx.get_table(ForexConnect.OFFERS)
+				table_listener = Common.subscribe_table_updates(
+					offers,
+					on_change_callback=self.offers_listener.on_changed,
+					on_add_callback=self.offers_listener.on_added,
+					on_delete_callback=self.offers_listener.on_deleted,
+					on_status_change_callback=self.offers_listener.on_changed
+				)
+				
 			# if self._initialized and self.offers_listener is None:
 			# 	self.data_saver.fill_all_missing_data()
 
@@ -274,6 +284,14 @@ class FXCM(object):
 		)
 
 		return result.to_dict()
+
+
+	def _resubscribe_chart_updates(self):
+		for i in self.subscriptions:
+			self.offers_listener.addInstrument(
+				self._convert_product(instrument), 
+				subscription.onChartUpdate
+			)
 
 
 	def _subscribe_chart_updates(self, msg_id, instrument):
