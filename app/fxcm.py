@@ -192,31 +192,31 @@ class FXCM(object):
 
 		elif status == fxcorepy.AO2GSessionStatus.O2GSessionStatus.CONNECTED:
 			print('[FXCM] Logged in.', flush=True)
-			if self.offers_listener is not None:
-				offers = self.fx.get_table(ForexConnect.OFFERS)
-				table_listener = Common.subscribe_table_updates(
-					offers,
-					on_change_callback=self.offers_listener.on_changed,
-					on_add_callback=self.offers_listener.on_added,
-					on_delete_callback=self.offers_listener.on_deleted,
-					on_status_change_callback=self.offers_listener.on_changed
-				)
+			# if self.offers_listener is not None:
+			# 	offers = self.fx.get_table(ForexConnect.OFFERS)
+			# 	table_listener = Common.subscribe_table_updates(
+			# 		offers,
+			# 		on_change_callback=self.offers_listener.on_changed,
+			# 		on_add_callback=self.offers_listener.on_added,
+			# 		on_delete_callback=self.offers_listener.on_deleted,
+			# 		on_status_change_callback=self.offers_listener.on_changed
+			# 	)
 				
 			# if self._initialized and self.offers_listener is None:
 			# 	self.data_saver.fill_all_missing_data()
 
 
-	def _get_offers_listener(self):
-		offers = self.fx.get_table(ForexConnect.OFFERS)
-		self.offers_listener = OffersTableListener()
+	# def _get_offers_listener(self):
+	# 	offers = self.fx.get_table(ForexConnect.OFFERS)
+	# 	self.offers_listener = OffersTableListener()
 
-		table_listener = Common.subscribe_table_updates(
-			offers,
-			on_change_callback=self.offers_listener.on_changed,
-			on_add_callback=self.offers_listener.on_added,
-			on_delete_callback=self.offers_listener.on_deleted,
-			on_status_change_callback=self.offers_listener.on_changed
-		)
+	# 	table_listener = Common.subscribe_table_updates(
+	# 		offers,
+	# 		on_change_callback=self.offers_listener.on_changed,
+	# 		on_add_callback=self.offers_listener.on_added,
+	# 		on_delete_callback=self.offers_listener.on_deleted,
+	# 		on_status_change_callback=self.offers_listener.on_changed
+	# 	)
 
 
 	def _send_response(self, msg_id, res):
