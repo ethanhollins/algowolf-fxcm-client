@@ -13,6 +13,7 @@ class OffersTableListener(object):
 	def __init__(self, instruments=[], listeners=[]):
 		self.__instruments = instruments
 		self.__listeners = listeners
+		self._running = False
 
 	def addInstrument(self, instrument, listener):
 		if instrument not in self.__instruments:
@@ -33,27 +34,35 @@ class OffersTableListener(object):
 		pass
 
 	def print_offer(self, offer_row, selected_instruments, listeners):
-		offer_id = offer_row.offer_id
-		instrument = offer_row.instrument
-		time = offer_row.time
-		bid = round(offer_row.bid, 5)
-		ask = round(offer_row.ask, 5)
-		volume = offer_row.volume
+		if self._running:
+			offer_id = offer_row.offer_id
+			instrument = offer_row.instrument
+			time = offer_row.time
+			bid = round(offer_row.bid, 5)
+			ask = round(offer_row.ask, 5)
+			volume = offer_row.volume
 
-		try:
-			idx = selected_instruments.index(instrument)
-			listener = listeners[idx]
-			listener(time, bid, ask, volume)
+			try:
+				idx = selected_instruments.index(instrument)
+				listener = listeners[idx]
+				listener(time, bid, ask, volume)
 
-		except ValueError:
-			pass
+			except ValueError:
+				pass
+
+	def start(self):
+		self._running = True
+
+	def stop(self):
+		self._running = False
 
 
 class Subscription(object):
 
-	def __init__(self, broker, msg_id):
+	def __init__(self, broker, msg_id, instrument):
 		self.broker = broker
 		self.msg_id = msg_id
+		self.instrument = instrument
 
 
 	def onChartUpdate(self, *args, **kwargs):
@@ -90,8 +99,8 @@ class FXCM(object):
 			while self.session is None or self.session.session_status == fxcorepy.AO2GSessionStatus.O2GSessionStatus.CONNECTING:
 				time.sleep(0.01)
 
-			if self.session.session_status == fxcorepy.AO2GSessionStatus.O2GSessionStatus.CONNECTED:
-				self._get_offers_listener()
+			# if self.session.session_status == fxcorepy.AO2GSessionStatus.O2GSessionStatus.CONNECTED:
+			# 	self._get_offers_listener()
 
 
 	def _is_logged_in(self):
@@ -144,16 +153,22 @@ class FXCM(object):
 
 
 	def _get_offers_listener(self):
+		if self.offers_listener is not None:
+			self.offers_listener.stop()
+
 		offers = self.fx.get_table(ForexConnect.OFFERS)
 		self.offers_listener = OffersTableListener()
 
-		table_listener = Common.subscribe_table_updates(
+		Common.subscribe_table_updates(
 			offers,
 			on_change_callback=self.offers_listener.on_changed,
 			on_add_callback=self.offers_listener.on_added,
 			on_delete_callback=self.offers_listener.on_deleted,
 			on_status_change_callback=self.offers_listener.on_changed
 		)
+		self._resubscribe_chart_updates()
+
+		self.offers_listener.start()
 
 
 	def _handle_job(self, func, *args, **kwargs):
@@ -192,6 +207,7 @@ class FXCM(object):
 
 		elif status == fxcorepy.AO2GSessionStatus.O2GSessionStatus.CONNECTED:
 			print('[FXCM] Logged in.', flush=True)
+			Thread(target=self._get_offers_listener).start()
 			# if self.offers_listener is not None:
 			# 	offers = self.fx.get_table(ForexConnect.OFFERS)
 			# 	table_listener = Common.subscribe_table_updates(
@@ -288,15 +304,27 @@ class FXCM(object):
 
 
 	def _resubscribe_chart_updates(self):
+		start_time = time.time()
+		while self.offers_listener is None or not self.offers_listener._running:
+			if time.time() - start_time > 30:
+				return
+			time.sleep(1)
+
 		for i in self.subscriptions:
 			self.offers_listener.addInstrument(
-				self._convert_product(instrument), 
-				subscription.onChartUpdate
+				self._convert_product(i.instrument), 
+				i.onChartUpdate
 			)
 
 
 	def _subscribe_chart_updates(self, msg_id, instrument):
-		subscription = Subscription(self, msg_id)
+		start_time = time.time()
+		while self.offers_listener is None or not self.offers_listener._running:
+			if time.time() - start_time > 30:
+				return
+			time.sleep(1)
+
+		subscription = Subscription(self, msg_id, instrument)
 		self.offers_listener.addInstrument(
 			self._convert_product(instrument), 
 			subscription.onChartUpdate
