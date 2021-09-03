@@ -70,6 +70,8 @@ class Subscription(object):
 	def onChartUpdate(self, *args, **kwargs):
 		args = list(args)
 		args[0] = tl.utils.convertTimeToTimestamp(args[0])
+
+		print(f"[Subscription.onChartUpdate] {self.msg_ids} {args}", flush=True)
 		for msg_id in self.msg_ids:
 			self.broker.send_queue.append((
 				msg_id,
