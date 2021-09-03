@@ -3,10 +3,12 @@ import pandas as pd
 import time
 import ntplib
 import shortuuid
+import traceback
 from . import tradelib as tl
 from threading import Thread
 from forexconnect import ForexConnect, fxcorepy, Common
 from datetime import datetime
+from threading import Thread
 
 
 class OffersTableListener(object):
@@ -59,22 +61,23 @@ class OffersTableListener(object):
 
 class Subscription(object):
 
-	def __init__(self, broker, msg_id, instrument):
+	def __init__(self, broker, instrument):
 		self.broker = broker
-		self.msg_id = msg_id
+		self.msg_ids = []
 		self.instrument = instrument
 
 
 	def onChartUpdate(self, *args, **kwargs):
 		args = list(args)
 		args[0] = tl.utils.convertTimeToTimestamp(args[0])
-		self.broker._send_response(
-			self.msg_id,
-			{
-				'args': args,
-				'kwargs': kwargs
-			}
-		)
+		for msg_id in self.msg_ids:
+			self.broker.send_queue.append((
+				msg_id,
+				{
+					'args': args,
+					'kwargs': kwargs
+				}
+			))
 
 
 class FXCM(object):
@@ -87,7 +90,8 @@ class FXCM(object):
 
 		self.is_parent = is_parent
 		self.job_queue = []
-		self.subscriptions = []
+		self.send_queue = []
+		self.subscriptions = {}
 		self.offers_listener = None
 
 		self.fx = ForexConnect()
@@ -101,6 +105,8 @@ class FXCM(object):
 
 			# if self.session.session_status == fxcorepy.AO2GSessionStatus.O2GSessionStatus.CONNECTED:
 			# 	self._get_offers_listener()
+
+		Thread(target=self._send_response).start()
 
 
 	def _is_logged_in(self):
@@ -235,18 +241,28 @@ class FXCM(object):
 	# 	)
 
 
-	def _send_response(self, msg_id, res):
-		res = {
-			'msg_id': msg_id,
-			'result': res
-		}
+	def _send_response(self):
+		while True:
+			if len(self.send_queue) > 0:
+				msg_id, res = self.send_queue[0]
+				
+				try:
+					res = {
+						'msg_id': msg_id,
+						'result': res
+					}
+					self.sio.emit(
+						'broker_res', 
+						res, 
+						namespace='/broker'
+					)
 
-		self.sio.emit(
-			'broker_res', 
-			res, 
-			namespace='/broker'
-		)
+				except Exception:
+					print(f"[FXCM._send_response] {time.time()}: {traceback.format_exc()}")
+				
+				del self.send_queue[0]
 
+			time.sleep(0.01)
 
 	'''
 	Broker functions
@@ -311,9 +327,10 @@ class FXCM(object):
 			time.sleep(1)
 
 		for i in self.subscriptions:
+			sub = self.subscriptions[i]
 			self.offers_listener.addInstrument(
-				self._convert_product(i.instrument), 
-				i.onChartUpdate
+				self._convert_product(sub.instrument), 
+				sub.onChartUpdate
 			)
 
 
@@ -324,12 +341,19 @@ class FXCM(object):
 				return
 			time.sleep(1)
 
-		subscription = Subscription(self, msg_id, instrument)
-		self.offers_listener.addInstrument(
-			self._convert_product(instrument), 
-			subscription.onChartUpdate
-		)
-		self.subscriptions.append(subscription)
+		if instrument in self.subscriptions:
+			subscription = Subscription(self, instrument)
+			subscription.msg_ids.append(msg_id)
+			self.subscriptions[instrument] = subscription
+
+			self.offers_listener.addInstrument(
+				self._convert_product(instrument), 
+				subscription.onChartUpdate
+			)
+			
+		else:
+			subscription = self.subscriptions[instrument]
+			subscription.msg_ids.append(msg_id)
 
 
 	def _convert_product(self, product):
