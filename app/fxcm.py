@@ -335,6 +335,7 @@ class FXCM(object):
 
 
 	def _subscribe_chart_updates(self, msg_id, instrument):
+		print(f"[FXCM._subscribe_chart_updates] SUBSCRIBE: {msg_id}, {instrument}", flush=True)
 		start_time = time.time()
 		while self.offers_listener is None or not self.offers_listener._running:
 			if time.time() - start_time > 30:
@@ -342,6 +343,12 @@ class FXCM(object):
 			time.sleep(1)
 
 		if instrument in self.subscriptions:
+			print(f"[FXCM._subscribe_chart_updates] SECOND:", flush=True)
+			subscription = self.subscriptions[instrument]
+			subscription.msg_ids.append(msg_id)
+			
+		else:
+			print(f"[FXCM._subscribe_chart_updates] FIRST:", flush=True)
 			subscription = Subscription(self, instrument)
 			subscription.msg_ids.append(msg_id)
 			self.subscriptions[instrument] = subscription
@@ -350,11 +357,7 @@ class FXCM(object):
 				self._convert_product(instrument), 
 				subscription.onChartUpdate
 			)
-			
-		else:
-			subscription = self.subscriptions[instrument]
-			subscription.msg_ids.append(msg_id)
-
+		
 
 	def _convert_product(self, product):
 		return product.replace('_', '/')
