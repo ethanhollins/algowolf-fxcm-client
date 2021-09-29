@@ -173,6 +173,13 @@ def onCommand(data):
 				user = getParent()
 				res = _subscribe_chart_updates(user, *data.get('args'), **data.get('kwargs'))
 
+			elif cmd == 'heartbeat':
+				user = getParent()
+				if user is not None:
+					res = { "result": True }
+				else:
+					res = { "result": False }
+
 			sendResponse(data.get('msg_id'), res)
 
 	except Exception as e:
