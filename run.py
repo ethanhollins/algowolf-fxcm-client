@@ -3,6 +3,8 @@ import socketio
 import os
 import json
 import traceback
+import shortuuid
+import time
 from app.fxcm import FXCM
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +18,7 @@ class UserContainer(object):
 		self.sio = sio
 		self.parent = None
 		self.users = {}
+		self.add_user_queue = []
 
 	def setParent(self, parent):
 		self.parent = parent
@@ -42,6 +45,17 @@ class UserContainer(object):
 
 	def getUser(self, username):
 		return self.users.get(username)
+
+	
+	def addToUserQueue(self):
+		_id = shortuuid.uuid()
+		self.add_user_queue.append(_id)
+		while self.add_user_queue[0] != _id:
+			time.sleep(0.1)
+
+
+	def popUserQueue(self):
+		del self.add_user_queue[0]
 
 
 def getConfig():
@@ -79,7 +93,14 @@ def sendResponse(msg_id, res):
 
 
 def onAddUser(username, password, is_demo, is_parent=False):
-	user = user_container.addUser(username, password, is_demo, is_parent=is_parent)
+	user_container.addToUserQueue()
+	try:
+		user = user_container.addUser(username, password, is_demo, is_parent=is_parent)
+	except Exception:
+		print(traceback.format_exc())
+	finally:
+		user_container.popUserQueue()
+	
 	return {
 		'completed': True
 	}
