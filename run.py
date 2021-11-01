@@ -5,6 +5,7 @@ import json
 import traceback
 import shortuuid
 import time
+import zmq
 from app.fxcm import FXCM
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -14,11 +15,26 @@ Utilities
 '''
 class UserContainer(object):
 
-	def __init__(self, sio):
-		self.sio = sio
+	def __init__(self):
 		self.parent = None
 		self.users = {}
 		self.add_user_queue = []
+		self._setup_zmq_connections()
+
+
+	def _setup_zmq_connections(self):
+		self.zmq_context = zmq.Context()
+
+		self.zmq_req_socket = self.zmq_context.socket(zmq.DEALER)
+		self.zmq_req_socket.connect("tcp://zmq_broker:5557")
+
+		self.zmq_pull_socket = self.zmq_context.socket(zmq.PULL)
+		self.zmq_pull_socket.connect("tcp://zmq_broker:5558")
+
+		self.zmq_poller = zmq.Poller()
+		self.zmq_poller.register(self.zmq_pull_socket, zmq.POLLIN)
+		self.zmq_poller.register(self.zmq_req_socket, zmq.POLLIN)
+
 
 	def setParent(self, parent):
 		self.parent = parent
@@ -30,7 +46,7 @@ class UserContainer(object):
 
 	def addUser(self, username, password, is_demo, is_parent):
 		if username not in self.users:
-			self.users[username] = FXCM(self.sio, username, password, is_demo, is_parent=is_parent)
+			self.users[username] = FXCM(self, username, password, is_demo, is_parent=is_parent)
 			if is_parent:
 				self.parent = self.users[username]
 
@@ -72,8 +88,8 @@ Initialize
 '''
 
 config = getConfig()
-sio = socketio.Client()
-user_container = UserContainer(sio)
+# sio = socketio.Client()
+user_container = UserContainer()
 
 '''
 Socket IO functions
@@ -81,15 +97,26 @@ Socket IO functions
 
 def sendResponse(msg_id, res):
 	res = {
-		'msg_id': msg_id,
-		'result': res
+		"type": "broker_reply",
+		"message": {
+			'msg_id': msg_id,
+			'result': res
+		}
 	}
 
-	sio.emit(
-		'broker_res', 
-		res, 
-		namespace='/broker'
-	)
+	user_container.zmq_req_socket.send_json(res)
+
+# def sendResponse(msg_id, res):
+# 	res = {
+# 		'msg_id': msg_id,
+# 		'result': res
+# 	}
+
+# 	sio.emit(
+# 		'broker_res', 
+# 		res, 
+# 		namespace='/broker'
+# 	)
 
 
 def onAddUser(username, password, is_demo, is_parent=False):
@@ -160,17 +187,17 @@ def _subscribe_chart_updates(user, msg_id, instrument):
 # Get All Accounts EPT
 
 
-@sio.on('connect', namespace='/broker')
-def onConnect():
-	print('CONNECTED!', flush=True)
+# @sio.on('connect', namespace='/broker')
+# def onConnect():
+# 	print('CONNECTED!', flush=True)
 
 
-@sio.on('disconnect', namespace='/broker')
-def onDisconnect():
-	print('DISCONNECTED', flush=True)
+# @sio.on('disconnect', namespace='/broker')
+# def onDisconnect():
+# 	print('DISCONNECTED', flush=True)
 
 
-@sio.on('broker_cmd', namespace='/broker')
+# @sio.on('broker_cmd', namespace='/broker')
 def onCommand(data):
 	print(f'COMMAND: {data}', flush=True)
 
@@ -209,29 +236,42 @@ def onCommand(data):
 			'error': str(e)
 		})
 
+# def createApp():
+# 	print('CREATING APP')
+# 	while True:
+# 		try:
+# 			sio.connect(
+# 				config['STREAM_URL'], 
+# 				headers={
+# 					'Broker': 'fxcm'
+# 				}, 
+# 				namespaces=['/broker']
+# 			)
+# 			break
+# 		except Exception:
+# 			pass
 
-def createApp():
-	print('CREATING APP')
+# 	# PARENT_USER_CONFIG = config['PARENT_USER']
+# 	# parent = FXCM(**PARENT_USER_CONFIG)
+# 	# user_container.setParent(parent)
+
+# 	return sio
+
+
+def run():
 	while True:
-		try:
-			sio.connect(
-				config['STREAM_URL'], 
-				headers={
-					'Broker': 'fxcm'
-				}, 
-				namespaces=['/broker']
-			)
-			break
-		except Exception:
-			pass
+		socks = dict(user_container.zmq_poller.poll())
 
-	# PARENT_USER_CONFIG = config['PARENT_USER']
-	# parent = FXCM(**PARENT_USER_CONFIG)
-	# user_container.setParent(parent)
+		if user_container.zmq_pull_socket in socks:
+			message = user_container.zmq_pull_socket.recv_json()
+			print(f"[ZMQ_PULL] {message}")
+			onCommand(message)
 
-	return sio
+		if user_container.zmq_req_socket in socks:
+			message = user_container.zmq_req_socket.recv()
+			print(f"[ZMQ_REQ] {message}")
 
 
 if __name__ == '__main__':
-	sio = createApp()
-	print('DONE')
+	# sio = createApp()
+	run()

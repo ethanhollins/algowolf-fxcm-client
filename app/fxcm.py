@@ -71,20 +71,35 @@ class Subscription(object):
 		args = list(args)
 		args[0] = tl.utils.convertTimeToTimestamp(args[0])
 
+		# for msg_id in self.msg_ids:
+		# 	self.broker.send_queue.append((
+		# 		msg_id,
+		# 		{
+		# 			'args': args,
+		# 			'kwargs': kwargs
+		# 		}
+		# 	))
+
 		for msg_id in self.msg_ids:
-			self.broker.send_queue.append((
-				msg_id,
-				{
-					'args': args,
-					'kwargs': kwargs
+			self.broker.container.zmq_req_socket.send_json({
+				"type": "price",
+				"message": {
+					'msg_id': msg_id,
+					'result': {
+						'args': args,
+						'kwargs': kwargs
+					}
 				}
-			))
+			})
+
+			# self.broker.container.zmq_req_socket.recv()
 
 
 class FXCM(object):
 
-	def __init__(self, sio, username, password, is_demo, is_parent):
-		self.sio = sio
+	def __init__(self, container, username, password, is_demo, is_parent):
+		self.container = container
+		# self.sio = sio
 		self.username = username
 		self.password = password
 		self.is_demo = is_demo
@@ -107,7 +122,7 @@ class FXCM(object):
 			# if self.session.session_status == fxcorepy.AO2GSessionStatus.O2GSessionStatus.CONNECTED:
 			# 	self._get_offers_listener()
 
-		Thread(target=self._send_response).start()
+		# Thread(target=self._send_response).start()
 
 
 	def _is_logged_in(self):
@@ -242,28 +257,28 @@ class FXCM(object):
 	# 	)
 
 
-	def _send_response(self):
-		while True:
-			if len(self.send_queue) > 0:
-				msg_id, res = self.send_queue[0]
+	# def _send_response(self):
+	# 	while True:
+	# 		if len(self.send_queue) > 0:
+	# 			msg_id, res = self.send_queue[0]
 				
-				try:
-					res = {
-						'msg_id': msg_id,
-						'result': res
-					}
-					self.sio.emit(
-						'broker_res', 
-						res, 
-						namespace='/broker'
-					)
+	# 			try:
+	# 				res = {
+	# 					'msg_id': msg_id,
+	# 					'result': res
+	# 				}
+	# 				self.sio.emit(
+	# 					'broker_res', 
+	# 					res, 
+	# 					namespace='/broker'
+	# 				)
 
-				except Exception:
-					print(f"[FXCM._send_response] {time.time()}: {traceback.format_exc()}")
+	# 			except Exception:
+	# 				print(f"[FXCM._send_response] {time.time()}: {traceback.format_exc()}")
 				
-				del self.send_queue[0]
+	# 			del self.send_queue[0]
 
-			time.sleep(0.01)
+	# 		time.sleep(0.01)
 
 	'''
 	Broker functions
