@@ -6,6 +6,7 @@ import traceback
 import shortuuid
 import time
 import zmq
+from threading import Thread
 from app.fxcm import FXCM
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,21 +20,8 @@ class UserContainer(object):
 		self.parent = None
 		self.users = {}
 		self.add_user_queue = []
-		self._setup_zmq_connections()
-
-
-	def _setup_zmq_connections(self):
+		self.send_queue = []
 		self.zmq_context = zmq.Context()
-
-		self.zmq_req_socket = self.zmq_context.socket(zmq.DEALER)
-		self.zmq_req_socket.connect("tcp://zmq_broker:5557")
-
-		self.zmq_pull_socket = self.zmq_context.socket(zmq.PULL)
-		self.zmq_pull_socket.connect("tcp://zmq_broker:5558")
-
-		self.zmq_poller = zmq.Poller()
-		self.zmq_poller.register(self.zmq_pull_socket, zmq.POLLIN)
-		self.zmq_poller.register(self.zmq_req_socket, zmq.POLLIN)
 
 
 	def setParent(self, parent):
@@ -104,7 +92,7 @@ def sendResponse(msg_id, res):
 		}
 	}
 
-	user_container.zmq_req_socket.send_json(res)
+	user_container.send_queue.append(res)
 
 # def sendResponse(msg_id, res):
 # 	res = {
@@ -164,10 +152,15 @@ def _download_historical_data_broker(
 
 
 def _subscribe_chart_updates(user, msg_id, instrument):
-	user._subscribe_chart_updates(msg_id, instrument)
-	return {
-		'completed': True
-	}
+	user_container.addToUserQueue()
+	try:
+		msg_id = user._subscribe_chart_updates(msg_id, instrument)
+	except Exception:
+		print(traceback.format_exc())
+	finally:
+		user_container.popUserQueue()
+	
+	return msg_id
 
 
 # Create Position EPT
@@ -257,8 +250,31 @@ def onCommand(data):
 
 # 	return sio
 
+def send_loop():
+	user_container.zmq_req_socket = user_container.zmq_context.socket(zmq.DEALER)
+	user_container.zmq_req_socket.connect("tcp://zmq_broker:5557")
+
+	while True:
+		try:
+			if len(user_container.send_queue):
+				item = user_container.send_queue[0]
+				del user_container.send_queue[0]
+
+				user_container.zmq_req_socket.send_json(item, zmq.NOBLOCK)
+
+		except Exception:
+			print(traceback.format_exc())
+
+		time.sleep(0.001)
+
 
 def run():
+	user_container.zmq_pull_socket = user_container.zmq_context.socket(zmq.PULL)
+	user_container.zmq_pull_socket.connect("tcp://zmq_broker:5558")
+
+	user_container.zmq_poller = zmq.Poller()
+	user_container.zmq_poller.register(user_container.zmq_pull_socket, zmq.POLLIN)
+
 	while True:
 		socks = dict(user_container.zmq_poller.poll())
 
@@ -267,11 +283,9 @@ def run():
 			print(f"[ZMQ_PULL] {message}")
 			onCommand(message)
 
-		if user_container.zmq_req_socket in socks:
-			message = user_container.zmq_req_socket.recv()
-			print(f"[ZMQ_REQ] {message}")
-
 
 if __name__ == '__main__':
+	print('START FXCM')
 	# sio = createApp()
+	Thread(target=send_loop).start()
 	run()

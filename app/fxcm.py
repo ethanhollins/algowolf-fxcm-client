@@ -81,7 +81,7 @@ class Subscription(object):
 		# 	))
 
 		for msg_id in self.msg_ids:
-			self.broker.container.zmq_req_socket.send_json({
+			self.broker.container.send_queue.append({
 				"type": "price",
 				"message": {
 					'msg_id': msg_id,
@@ -350,6 +350,14 @@ class FXCM(object):
 			)
 
 
+	def _get_subscription_msg_id(self, instrument):
+		if instrument in self.subscriptions:
+			subscription = self.subscriptions[instrument]
+			if len(subscription.msg_ids):
+				return subscription.msg_ids[0]
+		return None
+
+
 	def _subscribe_chart_updates(self, msg_id, instrument):
 		print(f"[FXCM._subscribe_chart_updates] SUBSCRIBE: {msg_id}, {instrument}", flush=True)
 		start_time = time.time()
@@ -358,21 +366,28 @@ class FXCM(object):
 				return
 			time.sleep(1)
 
-		if instrument in self.subscriptions:
-			print(f"[FXCM._subscribe_chart_updates] SECOND:", flush=True)
-			subscription = self.subscriptions[instrument]
-			subscription.msg_ids.append(msg_id)
-			
-		else:
-			print(f"[FXCM._subscribe_chart_updates] FIRST:", flush=True)
-			subscription = Subscription(self, instrument)
-			subscription.msg_ids.append(msg_id)
-			self.subscriptions[instrument] = subscription
+		existing_msg_id = self._get_subscription_msg_id(instrument)
 
-			self.offers_listener.addInstrument(
-				self._convert_product(instrument), 
-				subscription.onChartUpdate
-			)
+		if existing_msg_id is None:
+			if instrument in self.subscriptions:
+				print(f"[FXCM._subscribe_chart_updates] SECOND:", flush=True)
+				subscription = self.subscriptions[instrument]
+				subscription.msg_ids.append(msg_id)
+				
+			else:
+				print(f"[FXCM._subscribe_chart_updates] FIRST:", flush=True)
+				subscription = Subscription(self, instrument)
+				subscription.msg_ids.append(msg_id)
+				self.subscriptions[instrument] = subscription
+
+				self.offers_listener.addInstrument(
+					self._convert_product(instrument), 
+					subscription.onChartUpdate
+				)
+		else:
+			msg_id = existing_msg_id
+
+		return msg_id
 		
 
 	def _convert_product(self, product):
